@@ -1,0 +1,88 @@
+import { Forecasts, ForecastAggRow } from "@/lib/types";
+
+export default function MonthlyHeatmap({
+  data,
+  horizonDays,
+  modelName,
+  monthlyOverride,
+}: {
+  data: Forecasts;
+  horizonDays?: number;
+  modelName?: string;
+  monthlyOverride?: ForecastAggRow[];
+}) {
+  const meds = data.top_medicines.slice(0, 12);
+
+  const cutoffMonth = (() => {
+    const allDates = data.forecast.daily.map((r) => r.date).sort();
+    if (!horizonDays || allDates.length === 0) return null;
+    const start = new Date(allDates[0]);
+    const cutoff = new Date(start);
+    cutoff.setDate(cutoff.getDate() + horizonDays - 1);
+    return cutoff.toISOString().slice(0, 7);
+  })();
+
+  const source = monthlyOverride ?? data.forecast.monthly_by_medicine;
+
+  const months = Array.from(new Set(source.map((r) => r.month!)))
+    .sort()
+    .filter((m) => (cutoffMonth ? m <= cutoffMonth : true));
+
+  const lookup: Record<string, Record<string, number>> = {};
+  for (const r of source) {
+    lookup[r.GenericName] ??= {};
+    lookup[r.GenericName][r.month!] = r.qty;
+  }
+
+  const allValues = meds.flatMap((m) => months.map((mo) => lookup[m]?.[mo] ?? 0));
+  const max = Math.max(1, ...allValues);
+
+  return (
+    <div className="card">
+      <div className="section-h mb-1">Monthly demand heatmap</div>
+      <div className="section-sub mb-4">
+        Predicted units per medicine per calendar month, from the active model
+        (<span className="font-medium">{modelName ?? "HistGradientBoosting"}</span>),
+        clipped to the active horizon.
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr>
+              <th className="text-left py-2 pr-3 font-medium text-ink-400">Medicine</th>
+              {months.map((m) => (
+                <th key={m} className="py-2 px-2 font-medium text-ink-400 text-center">
+                  {m}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {meds.map((med) => (
+              <tr key={med}>
+                <td className="py-2 pr-3 font-medium text-ink-800 whitespace-nowrap">
+                  {med}
+                </td>
+                {months.map((mo) => {
+                  const v = lookup[med]?.[mo] ?? 0;
+                  const intensity = v / max;
+                  const bg = `rgba(14,159,110,${0.05 + intensity * 0.85})`;
+                  return (
+                    <td key={mo} className="py-1 px-1 text-center">
+                      <div
+                        style={{ background: bg }}
+                        className="rounded-md py-2 text-xs font-medium text-ink-800 tabular-nums"
+                      >
+                        {Math.round(v)}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
